@@ -1,12 +1,14 @@
-// veYFI's dYFIRewardPool contract ported to Cairo
+// veYFI's RewardPool & dYFIRewardPool contract ported to Cairo
+// it's a generalization of both contracts suitable for
+// veLORDS and dLORDS
 
 #[starknet::contract]
-mod dlords_reward_pool {
+mod reward_pool {
     use core::cmp::max;
     use core::integer::BoundedInt;
     use core::num::traits::Zero;
-    use lordship::interfaces::IDLordsRewardPool::IDLordsRewardPool;
     use lordship::interfaces::IERC20::{IERC20Dispatcher, IERC20DispatcherTrait};
+    use lordship::interfaces::IRewardPool::IRewardPool;
     use lordship::interfaces::IVE::{IVEDispatcher, IVEDispatcherTrait};
     use lordship::velords::Point;
     use openzeppelin::access::ownable::OwnableComponent;
@@ -35,8 +37,8 @@ mod dlords_reward_pool {
         ownable: OwnableComponent::Storage,
         #[substorage(v0)]
         upgradeable: UpgradeableComponent::Storage,
-        dlords: IERC20Dispatcher,
         velords: IVEDispatcher,
+        reward_token: IERC20Dispatcher,
         // Epoch time when fee distribution starts
         start_time: u64,
         // Epoch when the last token checkpoint was made
@@ -92,13 +94,13 @@ mod dlords_reward_pool {
         ref self: ContractState,
         owner: ContractAddress,
         velords: ContractAddress,
-        dlords: ContractAddress,
+        reward_token: ContractAddress,
         start_time: u64
     ) {
         self.ownable.initializer(owner);
 
         self.velords.write(IVEDispatcher { contract_address: velords });
-        self.dlords.write(IERC20Dispatcher { contract_address: dlords });
+        self.reward_token.write(IERC20Dispatcher { contract_address: reward_token });
 
         let t: u64 = floor_to_week(start_time);
         self.start_time.write(t);
@@ -115,7 +117,11 @@ mod dlords_reward_pool {
     }
 
     #[abi(embed_v0)]
-    impl IDLordsRewardPoolImpl of IDLordsRewardPool<ContractState> {
+    impl IRewardPoolImpl of IRewardPool<ContractState> {
+        fn get_reward_token(self: @ContractState) -> ContractAddress {
+            self.reward_token.read().contract_address
+        }
+
         fn get_start_time(self: @ContractState) -> u64 {
             self.start_time.read()
         }
@@ -144,20 +150,20 @@ mod dlords_reward_pool {
             self.ve_supply.read(week)
         }
 
-        /// Receive dYFI into the contract and update token checkpoint.
+        /// Receive reward token into the contract and update token checkpoint.
         fn burn(ref self: ContractState, amount: u256) {
             let caller: ContractAddress = get_caller_address();
             let this: ContractAddress = get_contract_address();
-            let dlords = self.dlords.read();
+            let reward_token = self.reward_token.read();
 
             let amount: u256 = if amount == BoundedInt::max() {
-                dlords.allowance(caller, this)
+                reward_token.allowance(caller, this)
             } else {
                 amount
             };
 
             if amount.is_non_zero() {
-                dlords.transfer_from(caller, this, amount);
+                reward_token.transfer_from(caller, this, amount);
                 self.emit(RewardReceived { sender: caller, amount });
 
                 if get_block_timestamp() > self.last_token_time.read() + TOKEN_CHECKPOINT_DEADLINE {
@@ -203,7 +209,7 @@ mod dlords_reward_pool {
 
             let amount: u256 = self.claim_internal(recipient, floor_to_week(last_token_time));
             if amount.is_non_zero() {
-                self.dlords.read().transfer(recipient, amount);
+                self.reward_token.read().transfer(recipient, amount);
                 self.token_last_balance.write(self.token_last_balance.read() - amount);
             }
 
@@ -214,8 +220,8 @@ mod dlords_reward_pool {
     #[generate_trait]
     impl InternalHelpers of InternalHelpersTrait {
         fn checkpoint_token_internal(ref self: ContractState) {
-            let dlords_balance: u256 = self.dlords.read().balance_of(get_contract_address());
-            let to_distribute: u256 = dlords_balance - self.token_last_balance.read();
+            let reward_token_balance: u256 = self.reward_token.read().balance_of(get_contract_address());
+            let to_distribute: u256 = reward_token_balance - self.token_last_balance.read();
             let now: u64 = get_block_timestamp();
 
             if to_distribute.is_zero() {
@@ -224,7 +230,7 @@ mod dlords_reward_pool {
                 return;
             }
 
-            self.token_last_balance.write(dlords_balance);
+            self.token_last_balance.write(reward_token_balance);
             let mut t: u64 = self.last_token_time.read();
             let since_last: u64 = now - t;
             self.last_token_time.write(now);

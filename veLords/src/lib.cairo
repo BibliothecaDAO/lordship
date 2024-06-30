@@ -1,10 +1,10 @@
 mod dlords;
-mod dlords_reward_pool;
+mod reward_pool;
 mod velords;
 
 pub mod interfaces {
-    pub mod IDLordsRewardPool;
     pub mod IERC20;
+    pub mod IRewardPool;
     pub mod IVE;
 }
 

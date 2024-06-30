@@ -1,13 +1,14 @@
 use starknet::ContractAddress;
 
 #[starknet::interface]
-pub trait IDLordsRewardPool<TContractState> {
+pub trait IRewardPool<TContractState> {
     // TODO: docs
 
     //
     // getters
     //
 
+    fn get_reward_token(self: @TContractState) -> ContractAddress;
     fn get_start_time(self: @TContractState) -> u64;
     fn get_time_cursor(self: @TContractState) -> u64;
     fn get_time_cursor_of(self: @TContractState, account: ContractAddress) -> u64;
